@@ -5,7 +5,6 @@
 }
 
 body {
-  /* Deep, dark radial background that looks premium */
   background: radial-gradient(circle at 50% 0%, #1a1a1a 0%, #050505 60%, #000000 100%);
   color: #ffffff;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -39,7 +38,7 @@ body {
   align-items: center;
   padding: 20px 40px;
   background: rgba(10, 10, 10, 0.4);
-  backdrop-filter: blur(12px); /* Creates the frosted glass look */
+  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   position: sticky;
@@ -73,7 +72,7 @@ body {
 
 .nav-links a:hover {
   color: #ffffff;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); /* Glowing text on hover */
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); 
 }
 
 .btn-premium {
@@ -88,7 +87,7 @@ body {
 
 .btn-premium:hover {
   transform: scale(1.05);
-  animation: pulseGlow 1.5s infinite; /* Pulses when you hover */
+  animation: pulseGlow 1.5s infinite; 
 }
 
 
@@ -97,7 +96,7 @@ body {
   padding: 100px 20px 80px;
   max-width: 800px;
   margin: 0 auto;
-  animation: fadeUp 0.8s ease-out forwards; /* Fades in smoothly on load */
+  animation: fadeUp 0.8s ease-out forwards; 
 }
 
 .hero h1 {
@@ -106,7 +105,7 @@ body {
   letter-spacing: -0.05em;
   line-height: 1.1;
   margin-bottom: 24px;
-  /* Metallic Gradient Text */
+
   background: linear-gradient(180deg, #ffffff 0%, #737373 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -137,7 +136,7 @@ body {
 .search-bar:focus {
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1); /* Glows when typing */
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
 }
 
 
@@ -189,7 +188,7 @@ body {
 .floating-icon {
   font-size: 4rem;
   color: rgba(255,255,255,0.2);
-  animation: float 4s ease-in-out infinite; /* Makes the center icon hover up and down */
+  animation: float 4s ease-in-out infinite; 
 }
 
 .product-details {
@@ -229,7 +228,7 @@ body {
 }
 
 @media (max-width: 768px) {
-  /* Shrink the navigation bar */
+
   .navbar {
     flex-direction: column;
     padding: 15px 20px;
@@ -243,7 +242,7 @@ body {
     justify-content: center;
   }
 
-  /* Shrink the giant hero text */
+
   .hero {
     padding: 60px 15px 40px;
   }
@@ -260,13 +259,13 @@ body {
     max-width: 100%;
   }
 
-  /* Adjust the grid for narrow phone screens */
+
   .main-content {
     padding: 0 15px 60px;
   }
 
   .product-grid {
-    grid-template-columns: 1fr; /* Forces exactly one card per row on phones */
+    grid-template-columns: 1fr;
   }
 
   .product-image-placeholder {
