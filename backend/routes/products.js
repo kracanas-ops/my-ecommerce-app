@@ -2,16 +2,64 @@ const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const validator = require('validator');
 const Product = require('../models/Product');
 const { requireAuth, requireAdmin, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+/**
+ * Sanitizes HTML content to prevent XSS attacks
+ */
+function sanitizeHtml(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+/**
+ * Validates and sanitizes a URL
+ */
+function validateUrl(url, fieldName) {
+  if (!url) return { valid: true };
+  
+  const trimmed = url.trim();
+  if (!trimmed) return { valid: true };
+  
+  // Must be http or https
+  if (!validator.isURL(trimmed, { 
+    protocols: ['http', 'https'], 
+    require_protocol: true,
+    require_valid_protocol: true 
+  })) {
+    return { 
+      valid: false, 
+      error: `${fieldName} must be a valid HTTP/HTTPS URL.` 
+    };
+  }
+  
+  // Additional security: block potentially dangerous URLs
+  const lowerUrl = trimmed.toLowerCase();
+  if (lowerUrl.startsWith('javascript:') || 
+      lowerUrl.startsWith('data:') ||
+      lowerUrl.startsWith('file:')) {
+    return { 
+      valid: false, 
+      error: `${fieldName} contains an invalid URL scheme.` 
+    };
+  }
+  
+  return { valid: true };
+}
+
 function serializeProduct(product) {
   return {
     id: product._id.toString(),
-    name: product.name,
-    description: product.description,
+    name: sanitizeHtml(product.name),
+    description: sanitizeHtml(product.description),
     imageUrl: product.imageUrl || '',
     price: product.price,
     stock: product.stock,
@@ -27,31 +75,54 @@ function serializeProduct(product) {
 // -- Public product listing -- //
 
 router.get('/', async (req, res) => {
-  const products = await Product.find().sort({ createdAt: 1 }).populate('seller', 'name email');
-  res.json(products.map(serializeProduct));
+  try {
+    const products = await Product.find().sort({ createdAt: 1 }).populate('seller', 'name email');
+    res.json(products.map(serializeProduct));
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Could not retrieve products.' });
+  }
 });
 
 router.get('/:id', async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(404).json({ error: 'Product not found.' });
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ error: 'Product not found.' });
+    }
+    const product = await Product.findById(req.params.id).populate('seller', 'name email');
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found.' });
+    }
+    res.json(serializeProduct(product));
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ error: 'Could not retrieve product.' });
   }
-  const product = await Product.findById(req.params.id).populate('seller', 'name email');
-  if (!product) {
-    return res.status(404).json({ error: 'Product not found.' });
-  }
-  res.json(serializeProduct(product));
 });
 
 // -- External link import (seller / admin) -- //
 
 router.post('/import-url', requireAuth, authorize('seller', 'admin'), async (req, res) => {
   const { url } = req.body || {};
-  if (typeof url !== 'string' || !url.trim() || !/^https?:\/\/.+/i.test(url.trim())) {
+  
+  if (typeof url !== 'string' || !url.trim()) {
+    return res.status(400).json({ error: 'Provide a valid product URL.' });
+  }
+  
+  const trimmedUrl = url.trim();
+  
+  // Validate URL before processing
+  const urlValidation = validateUrl(trimmedUrl, 'URL');
+  if (!urlValidation.valid) {
+    return res.status(400).json({ error: urlValidation.error });
+  }
+  
+  if (!/^https?:\/\/.+/i.test(trimmedUrl)) {
     return res.status(400).json({ error: 'Provide a valid product URL beginning with http:// or https://.' });
   }
 
   try {
-    const response = await axios.get(url.trim(), {
+    const response = await axios.get(trimmedUrl, {
       timeout: 12000,
       headers: { 'User-Agent': 'Forma.store-Importer/1.0' },
     });
@@ -73,13 +144,24 @@ router.post('/import-url', requireAuth, authorize('seller', 'admin'), async (req
       $('meta[name="twitter:image"]').attr('content') ||
       '';
 
+    // Validate scraped URLs
+    const imageValidation = validateUrl(image, 'Image URL');
+    if (!imageValidation.valid) {
+      console.warn('Invalid image URL scraped, using empty:', image);
+    }
+
     // Attempt to extract a numeric price from the page body
     const bodyText = $('body').text();
     const priceMatch = bodyText.match(/\$\s*(\d+(?:[,.]\d{1,2})?)/);
     const suggestedPrice = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) || 0 : 0;
 
     res.json({
-      scraped: { title: title.trim().slice(0, 120), description: description.trim().slice(0, 2000), imageUrl: image.trim().slice(0, 2048), suggestedPrice },
+      scraped: { 
+        title: sanitizeHtml(title.trim().slice(0, 120)), 
+        description: sanitizeHtml(description.trim().slice(0, 2000)), 
+        imageUrl: imageValidation.valid ? image.trim().slice(0, 2048) : '',
+        suggestedPrice 
+      },
     });
   } catch (error) {
     if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' || error.response?.status >= 400) {
@@ -93,45 +175,111 @@ router.post('/import-url', requireAuth, authorize('seller', 'admin'), async (req
 // -- Create product (seller / admin) -- //
 
 router.post('/', requireAuth, authorize('seller', 'admin'), async (req, res) => {
-  const { name, description = '', imageUrl = '', price, stock, category = '', videoUrl = '', sourceUrl = '', images = [] } = req.body || {};
-  if (typeof name !== 'string' || !name.trim() ||
-      !Number.isFinite(price) || price <= 0 ||
-      !Number.isInteger(stock) || stock < 0) {
-    return res.status(400).json({ error: 'Provide a name, positive price, and non-negative whole-number stock.' });
+  const {
+    name, 
+    description = '', 
+    imageUrl = '', 
+    price, 
+    stock, 
+    category = '', 
+    videoUrl = '', 
+    sourceUrl = '', 
+    images = []
+  } = req.body || {};
+
+  // Validate required fields
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Provide a product name.' });
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    return res.status(400).json({ error: 'Provide a positive price.' });
+  }
+  if (!Number.isInteger(stock) || stock < 0) {
+    return res.status(400).json({ error: 'Provide a non-negative whole-number stock.' });
   }
 
-  const product = await Product.create({
-    name: name.trim(),
-    description: description.trim(),
-    imageUrl: imageUrl.trim(),
-    price,
-    stock,
-    category: category.trim(),
-    videoUrl: videoUrl.trim(),
-    sourceUrl: sourceUrl.trim(),
-    images: Array.isArray(images) ? images.filter(Boolean).map((i) => i.trim()).filter((i) => i.length <= 2048) : [],
-    seller: req.user._id,
-  });
+  // Validate string lengths
+  if (name.trim().length > 120) {
+    return res.status(400).json({ error: 'Product name must be 120 characters or less.' });
+  }
+  if (description.trim().length > 2000) {
+    return res.status(400).json({ error: 'Product description must be 2000 characters or less.' });
+  }
+  if (category.trim().length > 80) {
+    return res.status(400).json({ error: 'Product category must be 80 characters or less.' });
+  }
 
-  res.status(201).json(serializeProduct(product));
+  // Validate URLs
+  const imageUrlValidation = validateUrl(imageUrl, 'Image URL');
+  if (!imageUrlValidation.valid) {
+    return res.status(400).json({ error: imageUrlValidation.error });
+  }
+  
+  const videoUrlValidation = validateUrl(videoUrl, 'Video URL');
+  if (!videoUrlValidation.valid) {
+    return res.status(400).json({ error: videoUrlValidation.error });
+  }
+  
+  const sourceUrlValidation = validateUrl(sourceUrl, 'Source URL');
+  if (!sourceUrlValidation.valid) {
+    return res.status(400).json({ error: sourceUrlValidation.error });
+  }
+
+  // Validate and sanitize images array
+  let validatedImages = [];
+  if (Array.isArray(images)) {
+    validatedImages = images.filter(Boolean).map(img => {
+      const trimmed = img.trim();
+      const validation = validateUrl(trimmed, 'Image');
+      return validation.valid && trimmed.length <= 2048 ? trimmed : null;
+    }).filter(Boolean);
+  }
+
+  try {
+    const product = await Product.create({
+      name: sanitizeHtml(name.trim()),
+      description: sanitizeHtml(description.trim()),
+      imageUrl: imageUrlValidation.valid ? imageUrl.trim() : '',
+      price,
+      stock,
+      category: sanitizeHtml(category.trim()),
+      videoUrl: videoUrlValidation.valid ? videoUrl.trim() : '',
+      sourceUrl: sourceUrlValidation.valid ? sourceUrl.trim() : '',
+      images: validatedImages,
+      seller: req.user._id,
+    });
+
+    res.status(201).json(serializeProduct(product));
+  } catch (error) {
+    console.error('Error creating product:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ error: 'A product with this name already exists.' });
+    }
+    res.status(500).json({ error: 'Could not create product.' });
+  }
 });
 
 // -- Delete product (admin only, or the owning seller) -- //
 
 router.delete('/:id', requireAuth, async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(404).json({ error: 'Product not found.' });
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ error: 'Product not found.' });
+    }
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found.' });
+    }
+    // Allow admin or the owning seller to delete
+    if (req.user.role !== 'admin' && req.user.isAdmin !== true && product.seller?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You do not have permission to delete this product.' });
+    }
+    await Product.findByIdAndDelete(req.params.id);
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting product:', error);
+    res.status(500).json({ error: 'Could not delete product.' });
   }
-  const product = await Product.findById(req.params.id);
-  if (!product) {
-    return res.status(404).json({ error: 'Product not found.' });
-  }
-  // Allow admin or the owning seller to delete
-  if (req.user.role !== 'admin' && req.user.isAdmin !== true && product.seller?.toString() !== req.user._id.toString()) {
-    return res.status(403).json({ error: 'You do not have permission to delete this product.' });
-  }
-  await Product.findByIdAndDelete(req.params.id);
-  res.status(204).end();
 });
 
 module.exports = router;

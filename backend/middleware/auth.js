@@ -8,9 +8,14 @@ function getJwtSecret() {
   return process.env.JWT_SECRET;
 }
 
+/**
+ * Middleware to require authentication.
+ * Verifies JWT token and loads user from database.
+ */
 async function requireAuth(req, res, next) {
   const authorization = req.headers.authorization || '';
   const [scheme, token] = authorization.split(' ');
+  
   if (scheme !== 'Bearer' || !token) {
     return res.status(401).json({ error: 'Sign in to continue.' });
   }
@@ -19,34 +24,52 @@ async function requireAuth(req, res, next) {
   try {
     payload = jwt.verify(token, getJwtSecret());
   } catch (error) {
-    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Your session is invalid or has expired. Please sign in again.' });
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Your session is invalid. Please sign in again.' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Your session has expired. Please sign in again.' });
     }
     return next(error);
   }
 
-  const user = await User.findById(payload.id);
-  if (!user) {
-    return res.status(401).json({ error: 'Your account could not be found. Please sign in again.' });
+  try {
+    const user = await User.findById(payload.id);
+    if (!user) {
+      return res.status(401).json({ error: 'Your account could not be found. Please sign in again.' });
+    }
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return res.status(500).json({ error: 'An authentication error occurred.' });
   }
-  req.user = user;
-  next();
 }
 
+/**
+ * Middleware to require administrator privileges.
+ * User must be authenticated AND have role 'admin'.
+ * The legacy isAdmin flag is NOT accepted for security.
+ */
 function requireAdmin(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ error: 'Sign in to continue.' });
   }
-  // Accept both the new role field and the legacy isAdmin flag
-  if (req.user.role === 'admin' || req.user.isAdmin === true) {
+  
+  // Only accept role === 'admin' (NOT isAdmin flag)
+  // This prevents privilege escalation via isAdmin field
+  if (req.user.role === 'admin') {
     return next();
   }
+  
   return res.status(403).json({ error: 'Administrator access is required.' });
 }
 
 /**
  * Returns middleware that checks the authenticated user's role against
- * one or more allowed roles.  Usage: router.get('/path', authorize('seller', 'admin'), handler)
+ * one or more allowed roles.
+ * 
+ * Usage: router.get('/path', authorize('seller', 'admin'), handler)
  */
 function authorize(...allowedRoles) {
   return (req, res, next) => {

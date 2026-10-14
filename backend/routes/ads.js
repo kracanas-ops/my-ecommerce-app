@@ -1,9 +1,17 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const { createRateLimiter } = require('../middleware/rateLimit');
 const SponsorAd = require('../models/SponsorAd');
 const { requireAuth, authorize } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Rate limiter for ad click tracking (1 click per IP per minute)
+const clickRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000, // 1 minute
+  max: 1,
+  message: 'Click already counted for this ad.'
+});
 
 // -- List active ads, optionally filtered by placement -- //
 router.get('/', async (req, res) => {
@@ -24,7 +32,7 @@ router.get('/', async (req, res) => {
 });
 
 // -- Track a click (public, no auth needed) -- //
-router.post('/:id/click', async (req, res) => {
+router.post('/:id/click', clickRateLimiter, async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(404).json({ error: 'Ad not found.' });
   }

@@ -1,6 +1,7 @@
 const express = require('express');
 const OpenAI = require('openai');
 const dds = require('duck-duck-scrape');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 const MAX_MESSAGE_LENGTH = 2000;
@@ -26,7 +27,7 @@ function getClient() {
   return _client;
 }
 
-router.post('/chat', async (req, res) => {
+router.post('/chat', requireAuth, async (req, res) => {
   const message = req.body?.message;
   if (typeof message !== 'string' || !message.trim() || message.length > MAX_MESSAGE_LENGTH) {
     return res.status(400).json({
