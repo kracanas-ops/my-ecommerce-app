@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  base = "frontend"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[context.production.environment]
+  VITE_API_URL = "https://your-backend-url.com"
+  VITE_STRIPE_PUBLISHABLE_KEY = "your_publishable_key"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
