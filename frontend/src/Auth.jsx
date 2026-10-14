@@ -1,75 +1,92 @@
 import { useState } from 'react';
-import './App.css';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useLocation, useNavigate } from 'react-router-dom';
+import AnimatedLink from './AnimatedLink';
+import MotionButton from './MotionButton';
+import MotionInput from './MotionInput';
+import { floatIn, spring } from './motion';
+import { useAuth } from './useAuth';
 
-export default function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
+export default function Auth({ mode }) {
+  const isRegister = mode === 'register';
+  const { login, register } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const endpoint = isLogin ? '/api/login' : '/api/register';
-    
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError('');
+    setSubmitting(true);
     try {
-      const response = await fetch(`https://my-ecommerce-app.onrender.com${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await response.json();
-      
-      if (response.ok) {
-        setMessage(data.message);
-        if (data.token) {
-          localStorage.setItem('userToken', data.token); // Save login token
-          window.location.href = '/'; // Redirect to home
-        }
+      if (isRegister) {
+        await register({ name, email, password });
       } else {
-        setMessage(data.error);
+        await login({ email, password });
       }
-    } catch (error) {
-      setMessage('Server error. Backend might be offline.');
+      navigate(location.state?.from?.pathname || '/', { replace: true });
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSubmitting(false);
     }
-  };
+  }
 
   return (
-    <div className="hero" style={{ paddingTop: '100px' }}>
-      <h2>{isLogin ? 'Welcome Back' : 'Create an Account'}</h2>
-      <p>Secure access to the future of commerce.</p>
-      
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px', maxWidth: '300px', margin: '0 auto' }}>
-        <input 
-          type="email" 
-          placeholder="Email Address" 
-          className="search-bar"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input 
-          type="password" 
-          placeholder="Password" 
-          className="search-bar"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button type="submit" className="btn-premium" style={{ width: '100%', padding: '12px' }}>
-          {isLogin ? 'Sign In' : 'Register'}
-        </button>
-      </form>
-
-      <p style={{ marginTop: '20px', color: '#a1a1aa' }}>
-        {message}
-      </p>
-
-      <p 
-        onClick={() => setIsLogin(!isLogin)} 
-        style={{ marginTop: '20px', cursor: 'pointer', textDecoration: 'underline', color: '#71717a' }}
+    <main className="mx-auto flex w-full max-w-7xl flex-1 items-center justify-center px-5 py-16">
+      <motion.section
+        className="glass-panel w-full max-w-md rounded-3xl p-7 sm:p-9"
+        initial="hidden"
+        animate="show"
+        variants={floatIn}
+        whileHover={{ y: -2, boxShadow: '0 30px 90px rgba(99, 75, 185, 0.2)' }}
+        transition={spring}
       >
-        {isLogin ? "Need an account? Register here." : "Already have an account? Sign in."}
-      </p>
-    </div>
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-violet-300">{isRegister ? 'Join the community' : 'Welcome back'}</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">{isRegister ? 'Create your account' : 'Sign in to Forma'}</h1>
+        <p className="mt-2 text-sm leading-6 text-zinc-400">
+          {isRegister ? 'Your next favorite thing is just around the corner.' : 'Pick up right where you left off.'}
+        </p>
+
+        <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+          {isRegister && (
+            <label className="block space-y-2 text-sm text-zinc-300">
+              Name
+              <MotionInput autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required minLength={2} maxLength={80} />
+            </label>
+          )}
+          <label className="block space-y-2 text-sm text-zinc-300">
+            Email address
+            <MotionInput type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label>
+          <label className="block space-y-2 text-sm text-zinc-300">
+            Password
+            <MotionInput type="password" autoComplete={isRegister ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} />
+            {isRegister && <span className="block text-xs text-zinc-500">Use at least 8 characters.</span>}
+          </label>
+          <AnimatePresence mode="wait">
+            {error && <motion.p key={error} initial={{ opacity: 0, y: -8, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: -6, height: 0 }} transition={spring} className="overflow-hidden rounded-xl border border-red-300/20 bg-red-400/[0.08] px-4 py-3 text-sm text-red-100" role="alert">{error}</motion.p>}
+          </AnimatePresence>
+          <MotionButton
+            className="glass-button w-full rounded-xl px-4 py-3 text-sm font-semibold disabled:cursor-wait disabled:opacity-60"
+            type="submit"
+            disabled={submitting}
+          >
+            {submitting ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in'}
+          </MotionButton>
+        </form>
+
+        <p className="mt-7 text-center text-sm text-zinc-500">
+          {isRegister ? 'Already have an account?' : 'New to Forma?'}{' '}
+          <AnimatedLink className="font-medium text-violet-200 hover:text-white" to={isRegister ? '/login' : '/register'}>
+            {isRegister ? 'Sign in' : 'Create an account'}
+          </AnimatedLink>
+        </p>
+      </motion.section>
+    </main>
   );
 }
